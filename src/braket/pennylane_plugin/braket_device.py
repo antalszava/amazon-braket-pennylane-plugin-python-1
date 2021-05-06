@@ -120,10 +120,8 @@ class BraketQubitDevice(QubitDevice):
 
     def _pl_to_braket_circuit(self, circuit, **run_kwargs):
         """Converts a PennyLane circuit to a Braket circuit"""
-        print(self._circuit_hash)
         if self._circuit_hash in self._compiled_circuits:
             # TODO: need to patch the new trainable circuit parameters on the compiled circuit
-            print('in compiled')
             return self._compiled_circuits[self._circuit_hash]
 
         braket_circuit = self.apply(
