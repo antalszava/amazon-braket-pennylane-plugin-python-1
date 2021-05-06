@@ -41,7 +41,8 @@ from braket.device_schema import DeviceActionType
 from braket.devices import Device, LocalSimulator
 from braket.simulator import BraketSimulator
 from braket.tasks import GateModelQuantumTaskResult, QuantumTask
-from pennylane import CircuitGraph, QuantumFunctionError, QubitDevice
+from pennylane import QuantumFunctionError, QubitDevice
+from pennylane.tape import QuantumTape
 from pennylane import numpy as np
 from pennylane.operation import Expectation, Observable, Operation, Probability, Sample, Variance
 
@@ -87,6 +88,8 @@ class BraketQubitDevice(QubitDevice):
         self._circuit = None
         self._task = None
         self._run_kwargs = run_kwargs
+        self._circuit_hash = None
+        self._compiled_circuits = {}
 
     def reset(self):
         super().reset()
@@ -117,6 +120,12 @@ class BraketQubitDevice(QubitDevice):
 
     def _pl_to_braket_circuit(self, circuit, **run_kwargs):
         """Converts a PennyLane circuit to a Braket circuit"""
+        print(self._circuit_hash)
+        if self._circuit_hash in self._compiled_circuits:
+            # TODO: need to patch the new trainable circuit parameters on the compiled circuit
+            print('in compiled')
+            return self._compiled_circuits[self._circuit_hash]
+
         braket_circuit = self.apply(
             circuit.operations,
             rotations=None,  # Diagonalizing gates are applied in Braket SDK
@@ -125,6 +134,8 @@ class BraketQubitDevice(QubitDevice):
         for observable in circuit.observables:
             dev_wires = self.map_wires(observable.wires).tolist()
             braket_circuit.add_result_type(translate_result_type(observable, dev_wires))
+
+        self._compiled_circuits[self._circuit_hash] = braket_circuit
         return braket_circuit
 
     def statistics(
@@ -166,8 +177,9 @@ class BraketQubitDevice(QubitDevice):
 
         return np.asarray(results)
 
-    def execute(self, circuit: CircuitGraph, **run_kwargs) -> np.ndarray:
+    def execute(self, circuit: QuantumTape, **run_kwargs) -> np.ndarray:
         self.check_validity(circuit.operations, circuit.observables)
+        self._circuit_hash = circuit.graph.hash
         self._circuit = self._pl_to_braket_circuit(circuit, **run_kwargs)
         self._task = self._run_task(self._circuit)
         return self._braket_to_pl_result(self._task.result(), circuit)
