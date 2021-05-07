@@ -89,6 +89,7 @@ class BraketQubitDevice(QubitDevice):
         self._task = None
         self._run_kwargs = run_kwargs
         self._circuit_hash = None
+        self._param_info = None
         self._compiled_circuits = {}
 
     def reset(self):
@@ -118,13 +119,23 @@ class BraketQubitDevice(QubitDevice):
         """QuantumTask: The task corresponding to the last run circuit."""
         return self._task
 
+    def patch_trainable_params(self, circ, params):
+
+        for par_type, instruction in zip(self._param_info, circ.instructions):
+            parametrized_op = hasattr(instruction._operator, "_angle")
+            if parametrized_op and par_type is not None:
+                param = params.pop(0)
+                instruction._operator._angle = param
+        return circ
+
     def _pl_to_braket_circuit(self, circuit, **run_kwargs):
         """Converts a PennyLane circuit to a Braket circuit"""
-        print(self._circuit_hash)
         if self._circuit_hash in self._compiled_circuits:
-            # TODO: need to patch the new trainable circuit parameters on the compiled circuit
-            print('in compiled')
-            return self._compiled_circuits[self._circuit_hash]
+            compiled_circuit = self._compiled_circuits[self._circuit_hash]
+            trainable_params = circuit.get_parameters(trainable_only=True)
+
+            compiled_circuit = self.patch_trainable_params(compiled_circuit, trainable_params)
+            return compiled_circuit
 
         braket_circuit = self.apply(
             circuit.operations,
@@ -177,9 +188,51 @@ class BraketQubitDevice(QubitDevice):
 
         return np.asarray(results)
 
+    @staticmethod
+    def serialize(circuit):
+        """Serialize the quantum circuit graph based on the operations and
+        observables in the circuit graph and the index of the variables
+        used by them.
+
+        The string that is produced can be later hashed to assign a unique value to the circuit graph.
+
+        Returns:
+            string: serialized quantum circuit graph
+        """
+        serialization_strings = []
+        parameter_placeholders = []
+        delimiter = "!"
+
+        for op in circuit._ops:
+            serialization_strings.append(op.name)
+            for param in op.data:
+                if not getattr(param, "requires_grad", True):
+                    # Record the non-trainable parameters
+                    serialization_strings.append(str(param))
+                    parameter_placeholders.append(None) # we represent non-trainable parameters with None
+                else:
+                    parameter_placeholders.append("trainable_param") # we keep track of trainable parameters with a value that is not None
+
+            serialization_strings.append(str(op.wires.tolist()))
+
+        # Adding a distinct separating string that could not occur by any combination of the
+        # name of the operation and wires
+        serialization_strings.append("|||")
+
+        for obs in circuit._measurements:
+            serialization_strings.append(str(obs.name))
+            serialization_strings.append(str(obs.wires.tolist()))
+
+        return "".join(serialization_strings), parameter_placeholders
+
+    @staticmethod
+    def get_circuit_hash_and_parameter_info(circuit):
+        serial_circuit, param_info = BraketQubitDevice.serialize(circuit)
+        return hash(serial_circuit), param_info
+
     def execute(self, circuit: QuantumTape, **run_kwargs) -> np.ndarray:
         self.check_validity(circuit.operations, circuit.observables)
-        self._circuit_hash = circuit.graph.hash
+        self._circuit_hash, self._param_info = BraketQubitDevice.get_circuit_hash_and_parameter_info(circuit)
         self._circuit = self._pl_to_braket_circuit(circuit, **run_kwargs)
         self._task = self._run_task(self._circuit)
         return self._braket_to_pl_result(self._task.result(), circuit)
