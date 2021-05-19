@@ -41,7 +41,7 @@ from braket.pennylane_plugin import (
     CPhaseShift01,
     CPhaseShift10,
 )
-from braket.pennylane_plugin.braket_device import BraketQubitDevice
+from braket.pennylane_plugin.braket_device import BraketQubitDevice, Shots
 
 SHOTS = 10000
 
@@ -456,6 +456,20 @@ def test_non_jaqcd_device(name_mock):
 
 def test_simulator_default_shots():
     """Tests that simulator devices are analytic if ``shots`` is not supplied"""
+    dev = _aws_device(wires=2, device_type=AwsDeviceType.SIMULATOR, shots=Shots.DEFAULT)
+    assert dev.shots is None
+    assert dev.analytic
+
+
+def test_simulator_0_shots():
+    """Tests that simulator devices are analytic if ``shots`` is zero"""
+    dev = _aws_device(wires=2, device_type=AwsDeviceType.SIMULATOR, shots=0)
+    assert dev.shots is None
+    assert dev.analytic
+
+
+def test_simulator_none_shots():
+    """Tests that simulator devices are analytic if ``shots`` is None"""
     dev = _aws_device(wires=2, device_type=AwsDeviceType.SIMULATOR, shots=None)
     assert dev.shots is None
     assert dev.analytic
@@ -468,7 +482,14 @@ def test_local_default_shots():
     assert dev.analytic
 
 
-def test_local_None_shots():
+def test_local_zero_shots():
+    """Test that the local simulator device is analytic if ``shots=0``"""
+    dev = BraketLocalQubitDevice(wires=2, shots=0)
+    assert dev.shots is None
+    assert dev.analytic
+
+
+def test_local_none_shots():
     """Tests that the simulator devices are analytic if ``shots`` is specified to be `None`."""
     dev = BraketLocalQubitDevice(wires=2, shots=None)
     assert dev.shots is None
@@ -500,8 +521,15 @@ def test_local_qubit_execute(mock_run, shots):
 
 def test_qpu_default_shots():
     """Tests that QPU devices have the right default value for ``shots``"""
-    with pytest.raises(ValueError, match="QPU devices require the number of shots to be specified"):
-        _aws_device(wires=2, shots=None)
+    dev = _aws_device(wires=2, shots=Shots.DEFAULT)
+    assert dev.shots == AwsDevice.DEFAULT_SHOTS_QPU
+    assert not dev.analytic
+
+
+@pytest.mark.xfail(raises=ValueError)
+def test_qpu_0_shots():
+    """Tests that QPUs can not be instantiated with 0 shots"""
+    _aws_device(wires=2, shots=0)
 
 
 @pytest.mark.xfail(raises=ValueError)
