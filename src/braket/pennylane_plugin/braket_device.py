@@ -237,7 +237,7 @@ class BraketQubitDevice(QubitDevice):
         serial_circuit, param_info = BraketQubitDevice.serialize(circuit)
         return hash(serial_circuit), param_info
 
-    def execute(self, circuit: QuantumTape, **run_kwargs) -> np.ndarray:
+    def execute(self, circuit, **run_kwargs) -> np.ndarray:
         self.check_validity(circuit.operations, circuit.observables)
         self._circuit_hash, self._param_info = BraketQubitDevice.get_circuit_hash_and_parameter_info(circuit)
         self._circuit = self._pl_to_braket_circuit(circuit, **run_kwargs)
