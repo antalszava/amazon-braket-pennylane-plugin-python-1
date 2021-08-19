@@ -79,8 +79,7 @@ ARN points to a QPU, analytic mode is not available and an error will be raised.
 Supported operations
 ~~~~~~~~~~~~~~~~~~~~
 
-The device support all PennyLane `operations and observables <https://pennylane.readthedocs.io/en/stable/introduction/operations.html#qubit-operations>`_,
-with the exception of the PennyLane ``QubitUnitary`` and ``Rot`` gates and ``Hermitian`` observable.
+The device supports all PennyLane `operations and observables <https://pennylane.readthedocs.io/en/stable/introduction/operations.html#qubit-operations>`_.
 
 The PennyLane-Braket plugin provides the following framework-specific operations for PennyLane, which can be imported
 from :mod:`braket.pennylane_plugin.ops <.ops>`:
@@ -96,3 +95,10 @@ from :mod:`braket.pennylane_plugin.ops <.ops>`:
     braket.pennylane_plugin.XX
     braket.pennylane_plugin.YY
     braket.pennylane_plugin.ZZ
+    braket.pennylane_plugin.AmplitudeDamping
+    braket.pennylane_plugin.GeneralizedAmplitudeDamping
+    braket.pennylane_plugin.PhaseDamping
+    braket.pennylane_plugin.DepolarizingChannel
+    braket.pennylane_plugin.BitFlip
+    braket.pennylane_plugin.PhaseFlip
+    braket.pennylane_plugin.QubitChannel

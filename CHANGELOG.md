@@ -1,5 +1,40 @@
 # Changelog
 
+## v1.4.1 (2021-08-06)
+
+### Bug Fixes and Other Changes
+
+ * correct operation names
+ * update: Make supported operations device specific
+
+## v1.4.0 (2021-07-13)
+
+### Features
+
+ * Support `Projector` observable
+
+## v1.3.0 (2021-05-24)
+
+### Features
+
+ * Support for density matrix simulators
+
+### Testing and Release Infrastructure
+
+ * Use GitHub source for tox tests
+
+## v1.2.1 (2021-05-13)
+
+### Bug Fixes and Other Changes
+
+ * cache supported ops in the device
+ * Merge pull request #68 from antalszava/patch-2
+ * Update setup.py to ease PennyLane pinning
+
+### Documentation Changes
+
+ * Correct supported gates
+
 ## v1.2.0 (2021-05-11)
 
 ### Features

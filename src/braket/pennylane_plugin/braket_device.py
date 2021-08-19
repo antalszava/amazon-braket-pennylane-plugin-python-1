@@ -1,4 +1,4 @@
-# Copyright 2019-2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -32,9 +32,8 @@ Code details
 ~~~~~~~~~~~~
 """
 
-from enum import Enum, auto
-
 # pylint: disable=invalid-name
+from enum import Enum, auto
 from typing import FrozenSet, Iterable, List, Optional, Sequence, Union
 
 from braket.aws import AwsDevice, AwsDeviceType, AwsQuantumTask, AwsQuantumTaskBatch, AwsSession
@@ -45,7 +44,15 @@ from braket.simulator import BraketSimulator
 from braket.tasks import GateModelQuantumTaskResult, QuantumTask
 from pennylane import CircuitGraph, QuantumFunctionError, QubitDevice
 from pennylane import numpy as np
-from pennylane.operation import Expectation, Observable, Operation, Probability, Sample, Variance
+from pennylane.operation import (
+    Expectation,
+    Observable,
+    Operation,
+    Probability,
+    Sample,
+    State,
+    Variance,
+)
 
 from braket.pennylane_plugin.translation import (
     supported_operations,
@@ -55,7 +62,7 @@ from braket.pennylane_plugin.translation import (
 
 from ._version import __version__
 
-RETURN_TYPES = [Expectation, Variance, Sample, Probability]
+RETURN_TYPES = [Expectation, Variance, Sample, Probability, State]
 
 
 class Shots(Enum):
@@ -78,7 +85,7 @@ class BraketQubitDevice(QubitDevice):
         **run_kwargs: Variable length keyword arguments for ``braket.devices.Device.run()`.
     """
     name = "Braket PennyLane plugin"
-    pennylane_requires = ">=0.15.1"
+    pennylane_requires = ">=0.16.0"
     version = __version__
     author = "Amazon Web Services"
 
@@ -98,6 +105,8 @@ class BraketQubitDevice(QubitDevice):
         self._circuit_hash = None
         self._param_info = None
         self._compiled_circuits = {}
+        self._supported_ops = supported_operations(self._device)
+        self._check_supported_result_types()
 
     def reset(self):
         super().reset()
@@ -114,7 +123,7 @@ class BraketQubitDevice(QubitDevice):
     @property
     def operations(self) -> FrozenSet[str]:
         """FrozenSet[str]: The set of names of PennyLane operations that the device supports."""
-        return supported_operations()
+        return self._supported_ops
 
     @property
     def circuit(self) -> Circuit:
@@ -151,7 +160,9 @@ class BraketQubitDevice(QubitDevice):
         )
         for observable in circuit.observables:
             dev_wires = self.map_wires(observable.wires).tolist()
-            braket_circuit.add_result_type(translate_result_type(observable, dev_wires))
+            braket_circuit.add_result_type(
+                translate_result_type(observable, dev_wires, self._braket_result_types)
+            )
 
         self._compiled_circuits[self._circuit_hash] = braket_circuit
         return braket_circuit
@@ -253,8 +264,7 @@ class BraketQubitDevice(QubitDevice):
 
         # Add operations to Braket Circuit object
         for operation in operations + rotations:
-            params = [p.numpy() if isinstance(p, np.tensor) else p for p in operation.parameters]
-            gate = translate_operation(operation, params)
+            gate = translate_operation(operation)
             dev_wires = self.map_wires(operation.wires).tolist()
             ins = Instruction(gate, dev_wires)
             circuit.add_instruction(ins)
@@ -267,12 +277,23 @@ class BraketQubitDevice(QubitDevice):
 
         return circuit
 
+    def _check_supported_result_types(self):
+        supported_result_types = self._device.properties.action[
+            "braket.ir.jaqcd.program"
+        ].supportedResultTypes
+
+        self._braket_result_types = frozenset(
+            result_type.name for result_type in supported_result_types
+        )
+
     def _run_task(self, circuit):
         raise NotImplementedError("Need to implement task runner")
 
     def _get_statistic(self, braket_result, observable):
         dev_wires = self.map_wires(observable.wires).tolist()
-        return braket_result.get_value_by_result_type(translate_result_type(observable, dev_wires))
+        return braket_result.get_value_by_result_type(
+            translate_result_type(observable, dev_wires, self._braket_result_types)
+        )
 
 
 class BraketAwsQubitDevice(BraketQubitDevice):

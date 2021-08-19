@@ -1,4 +1,4 @@
-# Copyright 2019-2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -27,8 +27,8 @@ setup(
     packages=find_namespace_packages(where="src", exclude=("test",)),
     package_dir={"": "src"},
     install_requires=[
-        "amazon-braket-sdk>=1.5.0",
-        "pennylane>=0.15.1",
+        "amazon-braket-sdk",
+        "pennylane>=0.16.0",
     ],
     entry_points={
         "pennylane.plugins": [

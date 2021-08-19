@@ -1,4 +1,4 @@
-# Copyright 2019-2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -11,48 +11,98 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 
-from functools import singledispatch
+from functools import reduce, singledispatch
 from typing import FrozenSet, List
 
-import numpy as np
 import pennylane as qml
-from braket.circuits import Gate, ResultType, gates, observables
-from braket.circuits.result_types import Expectation, Probability, Sample, Variance
+from braket.circuits import Gate, ResultType, gates, noises, observables
+from braket.circuits.result_types import (
+    DensityMatrix,
+    Expectation,
+    Probability,
+    Sample,
+    StateVector,
+    Variance,
+)
+from braket.devices import Device
+from pennylane import numpy as np
 from pennylane.operation import Observable, ObservableReturnTypes, Operation
 
-from braket.pennylane_plugin.ops import (
-    ISWAP,
-    PSWAP,
-    XX,
-    XY,
-    YY,
-    ZZ,
-    CPhaseShift,
-    CPhaseShift00,
-    CPhaseShift01,
-    CPhaseShift10,
-)
+from braket.pennylane_plugin.ops import PSWAP, XY, YY, CPhaseShift00, CPhaseShift01, CPhaseShift10
+
+_BRAKET_TO_PENNYLANE_OPERATIONS = {
+    "x": "PauliX",
+    "y": "PauliY",
+    "z": "PauliZ",
+    "h": "Hadamard",
+    "ry": "RY",
+    "rx": "RX",
+    "rz": "RZ",
+    "s": "S",
+    "si": "S.inv",
+    "v": "SX",
+    "vi": "SX.inv",
+    "t": "T",
+    "ti": "T.inv",
+    "cnot": "CNOT",
+    "cy": "CY",
+    "cz": "CZ",
+    "swap": "SWAP",
+    "cswap": "CSWAP",
+    "ccnot": "Toffoli",
+    "phaseshift": "PhaseShift",
+    "unitary": "QubitUnitary",
+    "amplitude_damping": "AmplitudeDamping",
+    "generalized_amplitude_damping": "GeneralizedAmplitudeDamping",
+    "phase_damping": "PhaseDamping",
+    "depolarizing": "DepolarizingChannel",
+    "bit_flip": "BitFlip",
+    "phase_flip": "PhaseFlip",
+    "kraus": "QubitChannel",
+    "cphaseshift": "ControlledPhaseShift",
+    "cphaseshift00": "CPhaseShift00",
+    "cphaseshift01": "CPhaseShift01",
+    "cphaseshift10": "CPhaseShift10",
+    "iswap": "ISWAP",
+    "pswap": "PSWAP",
+    "xy": "XY",
+    "xx": "IsingXX",
+    "yy": "YY",
+    "zz": "IsingZZ",
+}
 
 
-def supported_operations() -> FrozenSet[str]:
-    """Returns the operations supported by the plugin.
+def supported_operations(device: Device) -> FrozenSet[str]:
+    """Returns the operations supported by the plugin based upon the device.
+
+    Args:
+        device (Device): The device to obtain the supported operations for
 
     Returns:
         FrozenSet[str]: The names of the supported operations
     """
-    return frozenset(op.__name__ for op in _translate_operation.registry) - {"object"}
+    try:
+        properties = device.properties.action["braket.ir.jaqcd.program"]
+    except AttributeError:
+        raise AttributeError("Device needs to have properties defined.")
+    supported_ops = frozenset(op.lower() for op in properties.supportedOperations)
+    return frozenset(
+        _BRAKET_TO_PENNYLANE_OPERATIONS[op]
+        for op in _BRAKET_TO_PENNYLANE_OPERATIONS
+        if op.lower() in supported_ops
+    )
 
 
-def translate_operation(operation: Operation, parameters) -> Gate:
+def translate_operation(operation: Operation, *args, **kwargs) -> Gate:
     """Translates a PennyLane ``Operation`` into the corresponding Braket ``Gate``.
 
     Args:
         operation (Operation): The PennyLane ``Operation`` to translate
-        parameters: The parameters of the operation
 
     Returns:
         Gate: The Braket gate corresponding to the given operation
     """
+    parameters = [p.numpy() if isinstance(p, qml.numpy.tensor) else p for p in operation.parameters]
     return _translate_operation(operation, parameters)
 
 
@@ -159,7 +209,50 @@ def _(qubit_unitary: qml.QubitUnitary, parameters):
 
 
 @_translate_operation.register
-def _(c_phase_shift: CPhaseShift, parameters):
+def _(amplitude_damping: qml.AmplitudeDamping, parameters):
+    gamma = parameters[0]
+    return noises.AmplitudeDamping(gamma)
+
+
+@_translate_operation.register
+def _(generalized_amplitude_damping: qml.GeneralizedAmplitudeDamping, parameters):
+    gamma = parameters[0]
+    probability = parameters[1]
+    return noises.GeneralizedAmplitudeDamping(probability=probability, gamma=gamma)
+
+
+@_translate_operation.register
+def _(phase_damping: qml.PhaseDamping, parameters):
+    gamma = parameters[0]
+    return noises.PhaseDamping(gamma)
+
+
+@_translate_operation.register
+def _(depolarizing_channel: qml.DepolarizingChannel, parameters):
+    probability = parameters[0]
+    return noises.Depolarizing(probability)
+
+
+@_translate_operation.register
+def _(bit_flip: qml.BitFlip, parameters):
+    probability = parameters[0]
+    return noises.BitFlip(probability)
+
+
+@_translate_operation.register
+def _(phase_flip: qml.PhaseFlip, parameters):
+    probability = parameters[0]
+    return noises.PhaseFlip(probability)
+
+
+@_translate_operation.register
+def _(qubit_channel: qml.QubitChannel, parameters):
+    K_list = [np.asarray(matrix) for matrix in parameters[0]]
+    return noises.Kraus(K_list)
+
+
+@_translate_operation.register
+def _(c_phase_shift: qml.ControlledPhaseShift, parameters):
     phi = parameters[0]
     return gates.CPhaseShift(-phi) if c_phase_shift.inverse else gates.CPhaseShift(phi)
 
@@ -183,7 +276,7 @@ def _(c_phase_shift_10: CPhaseShift10, parameters):
 
 
 @_translate_operation.register
-def _(iswap: ISWAP, _parameters):
+def _(iswap: qml.ISWAP, _parameters):
     return gates.PSwap(3 * np.pi / 2) if iswap.inverse else gates.ISwap()
 
 
@@ -200,7 +293,7 @@ def _(xy: XY, parameters):
 
 
 @_translate_operation.register
-def _(xx: XX, parameters):
+def _(xx: qml.IsingXX, parameters):
     phi = parameters[0]
     return gates.XX(-phi) if xx.inverse else gates.XX(phi)
 
@@ -212,18 +305,21 @@ def _(yy: YY, parameters):
 
 
 @_translate_operation.register
-def _(zz: ZZ, parameters):
+def _(zz: qml.IsingZZ, parameters):
     phi = parameters[0]
     return gates.ZZ(-phi) if zz.inverse else gates.ZZ(phi)
 
 
-def translate_result_type(observable: Observable, targets: List[int]) -> ResultType:
+def translate_result_type(
+    observable: Observable, targets: List[int], supported_result_types: FrozenSet[str]
+) -> ResultType:
     """Translates a PennyLane ``Observable`` into the corresponding Braket ``ResultType``.
 
     Args:
         observable (Observable): The PennyLane ``Observable`` to translate
         targets (List[int]): The target wires of the observable using a consecutive integer wire
             ordering
+        supported_result_types (FrozenSet[str]): Braket result types supported by the Braket device
 
     Returns:
         ResultType: The Braket result type corresponding to the given observable
@@ -232,6 +328,13 @@ def translate_result_type(observable: Observable, targets: List[int]) -> ResultT
 
     if return_type is ObservableReturnTypes.Probability:
         return Probability(targets)
+
+    if return_type is ObservableReturnTypes.State:
+        if not targets and "StateVector" in supported_result_types:
+            return StateVector()
+        elif "DensityMatrix" in supported_result_types:
+            return DensityMatrix(targets)
+        raise NotImplementedError(f"Unsupported return type: {return_type}")
 
     braket_observable = _translate_observable(observable)
 
@@ -280,6 +383,19 @@ def _(h: qml.Hermitian):
     return observables.Hermitian(h.matrix)
 
 
+_zero = np.array([[1, 0], [0, 0]])
+_one = np.array([[0, 0], [0, 1]])
+
+
+@_translate_observable.register
+def _(p: qml.Projector):
+    bitstring = p.parameters[0]
+
+    products = [_one if b else _zero for b in bitstring]
+    hermitians = [observables.Hermitian(p) for p in products]
+    return observables.TensorProduct(hermitians)
+
+
 @_translate_observable.register
 def _(t: qml.operation.Tensor):
-    return observables.TensorProduct([_translate_observable(factor) for factor in t.obs])
+    return reduce(lambda x, y: x @ y, [_translate_observable(factor) for factor in t.obs])
